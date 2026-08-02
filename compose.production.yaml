@@ -1,0 +1,43 @@
+# 与 docker-compose.yml 叠加使用。生产环境只公开 Nginx，其他端口留在 Compose 网络内。
+services:
+  postgres:
+    ports: !reset []
+    restart: always
+
+  redis:
+    ports: !reset []
+    restart: always
+
+  migrate:
+    environment:
+      ENVIRONMENT: production
+
+  backend:
+    ports: !reset []
+    environment:
+      ENVIRONMENT: production
+      DEBUG: "false"
+      LOG_JSON: "true"
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+    restart: always
+
+  frontend:
+    ports: !reset []
+    restart: always
+
+  mail-mcp:
+    ports: !reset []
+    environment:
+      ENVIRONMENT: production
+    restart: always
+
+  calendar-mcp:
+    ports: !reset []
+    environment:
+      ENVIRONMENT: production
+    restart: always
+
+  nginx:
+    ports: !override
+      - "${NGINX_BIND_ADDRESS:-0.0.0.0}:${NGINX_PORT:-80}:80"
+    restart: always
