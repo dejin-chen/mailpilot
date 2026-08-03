@@ -5,6 +5,7 @@ from app.agent.schemas import (
     EmailClassification,
     ExecutionPlan,
     ExtractedIntent,
+    IntentPlanDecision,
     ModelUsage,
 )
 from app.integrations.llm.client import StructuredLlmResult
@@ -50,6 +51,17 @@ class FakeModelClient:
                 ],
                 should_generate_draft=True,
             )
+        elif schema is IntentPlanDecision:
+            parsed = IntentPlanDecision(
+                intent=ExtractedIntent(
+                    tasks=[],
+                    meeting={"detected": False},
+                    needs_clarification=False,
+                    reason="没有会议意图",
+                ),
+                should_generate_draft=True,
+                reason="直接生成回复草稿",
+            )
         else:
             raise AssertionError(f"未支持的 Schema：{schema}")
         return StructuredLlmResult(
@@ -82,3 +94,20 @@ async def test_model_runner_only_calls_analysis_components_and_never_mcp() -> No
     assert actual.terminal_status == "waiting_approval"
     assert actual.total_tokens == 15
     assert actual.tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_optimized_model_runner_uses_two_calls_for_non_ignored_email() -> None:
+    case = next(item for item in load_cases() if item.case_id == "MP-001")
+    client = FakeModelClient()
+
+    actual = (
+        await ModelEvaluationRunner(client, analysis_mode="optimized").run([case])  # type: ignore[arg-type]
+    )[0]
+
+    assert client.operations == [
+        "eval_classify_email",
+        "eval_analyze_intent_plan",
+    ]
+    assert actual.terminal_status == "waiting_approval"
+    assert actual.total_tokens == 10

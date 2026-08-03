@@ -52,6 +52,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="额外调用裁判模型评价带草稿的案例",
     )
+    parser.add_argument(
+        "--analysis-mode",
+        choices=("sequential", "optimized"),
+        default="optimized",
+        help="model 模式使用的分析链路；optimized 减少一次模型往返",
+    )
     return parser.parse_args()
 
 
@@ -76,10 +82,12 @@ async def async_main(args: argparse.Namespace) -> tuple[Path, Path]:
             OpenAICompatibleLlmClient(
                 settings=settings,
                 observability=get_observability(),
-            )
+            ),
+            analysis_mode=args.analysis_mode,
         ).run(cases)
         notes = [
             "model 模式只运行分类、意图和计划组件，不调用 MCP 或危险写工具。",
+            f"分析链路模式：{args.analysis_mode}。",
             "模型成绩受提供商和模型版本影响，不应写成未经限定的生产指标。",
         ]
 

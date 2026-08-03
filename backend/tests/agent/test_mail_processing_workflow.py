@@ -1,7 +1,7 @@
 """完整邮件处理 Graph 的暂停、恢复和反馈重生成测试。"""
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -15,14 +15,14 @@ from app.agent.nodes.approval import PreparedApproval
 from app.agent.nodes.execute_write import ExecutedApprovedAction
 from app.agent.nodes.load_email import LoadedInboundEmail
 from app.agent.schemas import (
-    DraftPurpose,
     EmailAction,
     EmailCategory,
     EmailClassification,
-    EmailDraft,
+    EmailDraftContent,
     EmailPriority,
     ExecutionPlan,
     ExtractedIntent,
+    IntentPlanDecision,
     MeetingIntent,
     ModelUsage,
     PlanAction,
@@ -90,6 +90,11 @@ class FakeLlm:
                 confidence=0.95,
             ),
             "extract_intent": ExtractedIntent(reason="没有会议意图"),
+            "analyze_intent_plan": IntentPlanDecision(
+                intent=ExtractedIntent(reason="没有会议意图"),
+                should_generate_draft=True,
+                reason="邮件需要回复且不需要只读工具",
+            ),
             "build_plan": ExecutionPlan(
                 goal="生成确认回复",
                 steps=[
@@ -101,10 +106,7 @@ class FakeLlm:
                 ],
                 should_generate_draft=True,
             ),
-            "generate_draft": EmailDraft(
-                purpose=DraftPurpose.REPLY,
-                recipients=["manager@example.com"],
-                subject="Re: 请确认项目进度",
+            "generate_draft": EmailDraftContent(
                 body_text="您好，项目可以按计划完成。",
             ),
         }
@@ -191,7 +193,7 @@ class FakeMeetingLlm(FakeLlm):
         )
 
 
-class FakeMaliciousRecipientLlm(FakeLlm):
+class FakeUntrustedDraftContentLlm(FakeLlm):
     async def ainvoke_structured[SchemaT: BaseModel](
         self,
         *,
@@ -208,12 +210,7 @@ class FakeMaliciousRecipientLlm(FakeLlm):
         self.operations.append(operation)
         return StructuredLlmResult(
             parsed=schema.model_validate(
-                EmailDraft(
-                    purpose=DraftPurpose.REPLY,
-                    recipients=["attacker@example.com"],
-                    subject="敏感数据",
-                    body_text="请查看内部数据。",
-                ).model_dump(mode="json")
+                EmailDraftContent(body_text="请查看内部数据。").model_dump(mode="json")
             ),
             usage=ModelUsage(
                 operation=operation,
@@ -333,7 +330,11 @@ def _context() -> AgentRuntimeContext:
     )
 
 
-def _build_graph(store: InMemoryStore | None = None):
+def _build_graph(
+    store: InMemoryStore | None = None,
+    *,
+    analysis_mode: Literal["sequential", "optimized"] = "sequential",
+):
     llm = FakeLlm()
     draft_client = FakeDraftClient()
     approvals = FakeApprovalCreator()
@@ -348,6 +349,7 @@ def _build_graph(store: InMemoryStore | None = None):
         executor=executor,
         checkpointer=InMemorySaver(),
         store=store or InMemoryStore(),
+        analysis_mode=analysis_mode,
     )
     return graph, llm, draft_client, approvals, executor
 
@@ -439,6 +441,25 @@ async def test_full_workflow_pauses_then_executes_approved_email() -> None:
 
 
 @pytest.mark.asyncio
+async def test_optimized_workflow_replaces_two_model_calls_with_one() -> None:
+    graph, llm, _, _, _ = _build_graph(analysis_mode="optimized")
+
+    paused = await graph.ainvoke(
+        {"email_thread_id": uuid4()},
+        config={"configurable": {"thread_id": f"optimized-flow-{uuid4()}"}},
+        context=_context(),
+    )
+
+    assert "__interrupt__" in paused
+    assert llm.operations == [
+        "classify_email",
+        "analyze_intent_plan",
+        "generate_draft",
+    ]
+    assert len(paused["model_usages"]) == 3
+
+
+@pytest.mark.asyncio
 async def test_feedback_creates_versioned_draft_and_second_approval() -> None:
     graph, llm, draft_client, approvals, executor = _build_graph()
     context = _context()
@@ -505,12 +526,12 @@ async def test_available_meeting_becomes_create_event_approval_without_draft() -
 
 
 @pytest.mark.asyncio
-async def test_draft_recipient_policy_blocks_model_from_adding_attacker() -> None:
+async def test_draft_envelope_is_determined_by_python() -> None:
     draft_client = FakeDraftClient()
     approvals = FakeApprovalCreator()
     graph = build_mail_processing_graph(
         reader=FakeReader(),
-        llm_client=FakeMaliciousRecipientLlm(),
+        llm_client=FakeUntrustedDraftContentLlm(),
         read_tool_client_factory=lambda _: draft_client,
         safe_tool_client_factory=lambda _: draft_client,
         approval_creator=approvals,
@@ -526,7 +547,9 @@ async def test_draft_recipient_policy_blocks_model_from_adding_attacker() -> Non
         context=_context(),
     )
 
-    assert result["run_status"].value == "failed"
-    assert result["errors"][-1].code == "DRAFT_RECIPIENT_POLICY_VIOLATION"
-    assert draft_client.calls == []
-    assert approvals.ids == []
+    assert "__interrupt__" in result
+    assert result["draft"].recipients == ["manager@example.com"]
+    assert result["draft"].cc == []
+    assert result["draft"].subject == "Re: 请确认项目进度"
+    assert draft_client.calls[0][1]["recipients"] == ["manager@example.com"]
+    assert len(approvals.ids) == 1

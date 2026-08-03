@@ -15,8 +15,11 @@ from app.agent.prompts import (
 )
 from app.agent.schemas import (
     AgentRunStatus,
+    DraftPurpose,
+    EmailAction,
     EmailClassification,
     EmailDraft,
+    EmailDraftContent,
     ExtractedIntent,
 )
 from app.agent.security import validate_draft_policy
@@ -53,7 +56,7 @@ def build_draft_idempotency_key(*, agent_run_id: object, version: int) -> str:
 
 
 class GenerateDraftNode:
-    """用结构化模型输出生成草稿，并用 Python 执行收件人安全校验。"""
+    """模型只写正文，Python 确定用途、收件人、抄送和回复主题。"""
 
     name = "generate_draft"
 
@@ -65,14 +68,13 @@ class GenerateDraftNode:
             result = await self._llm_client.ainvoke_structured(
                 operation=self.name,
                 messages=build_draft_messages(state),
-                schema=EmailDraft,
+                schema=EmailDraftContent,
             )
         except Exception as exc:
             return llm_failure_update(node=self.name, exc=exc, logger=logger)
 
         classification = state.get("classification")
         intent = state.get("intent")
-        draft = result.parsed
         if not isinstance(classification, EmailClassification) or not isinstance(
             intent, ExtractedIntent
         ):
@@ -81,6 +83,24 @@ class GenerateDraftNode:
                 code="AGENT_STATE_DATA_MISSING",
                 message="草稿安全校验前缺少结构化分类或意图",
             )
+        purpose = DraftPurpose.REPLY
+        if intent.needs_clarification:
+            purpose = DraftPurpose.CLARIFICATION
+        elif classification.action is EmailAction.REMIND:
+            purpose = DraftPurpose.REMINDER
+        original_subject = str(state.get("email_subject", "")).strip()
+        subject = (
+            original_subject
+            if original_subject.lower().startswith("re:")
+            else f"Re: {original_subject}"
+        )
+        draft = EmailDraft(
+            purpose=purpose,
+            recipients=[state.get("sender", "")],
+            cc=[],
+            subject=subject,
+            body_text=result.parsed.body_text,
+        )
         violation = validate_draft_policy(
             draft=draft,
             sender=state.get("sender", ""),

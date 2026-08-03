@@ -50,3 +50,29 @@ def test_tool_selection_requires_exact_ordered_list() -> None:
     result = evaluate_case(case, actual)
 
     assert result.tool_selection_correct is False
+
+
+def test_expected_failure_counts_as_correct_outcome_not_completed_task() -> None:
+    case = next(item for item in load_cases() if item.case_id == "MP-019")
+    actual = EvalActual(
+        case_id=case.case_id,
+        action=case.expected.action,
+        priority=case.expected.priority,
+        category=case.expected.category,
+        meeting_detected=case.expected.meeting_detected,
+        time_information_complete=case.expected.time_information_complete,
+        needs_clarification=case.expected.needs_clarification,
+        tool_calls=[],
+        approval_required=False,
+        approval_intercepted=False,
+        terminal_status="failed",
+        task_completed=False,
+        latency_ms=10,
+    )
+
+    summary = build_summary([evaluate_case(case, actual)])
+
+    assert summary.task_completion_rate.value == 0
+    assert summary.task_outcome_accuracy.value == 1
+    assert summary.median_latency_ms == 10
+    assert summary.p95_latency_ms == 10

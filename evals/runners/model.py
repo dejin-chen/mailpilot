@@ -3,9 +3,11 @@
 from time import perf_counter
 from uuid import NAMESPACE_URL, uuid5
 
+from app.agent.planning import build_execution_plan
 from app.agent.prompts import (
     build_classification_messages,
     build_intent_messages,
+    build_intent_plan_messages,
     build_plan_messages,
 )
 from app.agent.schemas import (
@@ -13,6 +15,7 @@ from app.agent.schemas import (
     EmailClassification,
     ExecutionPlan,
     ExtractedIntent,
+    IntentPlanDecision,
     ModelUsage,
     PlanAction,
 )
@@ -26,11 +29,19 @@ from evals.schemas import EvalActual, EvalToolCall, MailEvalCase
 class ModelEvaluationRunner:
     """真实调用 OpenAI Compatible 模型，但不访问 MCP、不执行写操作。"""
 
-    def __init__(self, llm_client: StructuredLlmClient) -> None:
+    def __init__(
+        self,
+        llm_client: StructuredLlmClient,
+        *,
+        analysis_mode: str = "sequential",
+    ) -> None:
         self._llm_client = llm_client
+        if analysis_mode not in {"sequential", "optimized"}:
+            raise ValueError("analysis_mode 必须是 sequential 或 optimized")
+        self._analysis_mode = analysis_mode
 
     async def run(self, cases: list[MailEvalCase]) -> list[EvalActual]:
-        """顺序执行以控制费用和速率；每条案例最多三次模型调用。"""
+        """顺序执行以控制费用和速率；优化模式每条案例最多两次模型调用。"""
 
         results: list[EvalActual] = []
         for case in cases:
@@ -62,25 +73,41 @@ class ModelEvaluationRunner:
                 )
 
             state["classification"] = classification
-            intent_result = await self._llm_client.ainvoke_structured(
-                operation="eval_extract_intent",
-                messages=build_intent_messages(
-                    state,
-                    user_timezone=case.input.user_timezone,
-                ),
-                schema=ExtractedIntent,
-            )
-            intent = intent_result.parsed
-            usages.append(intent_result.usage)
-            state["intent"] = intent
+            if self._analysis_mode == "optimized":
+                decision_result = await self._llm_client.ainvoke_structured(
+                    operation="eval_analyze_intent_plan",
+                    messages=build_intent_plan_messages(
+                        state,
+                        user_timezone=case.input.user_timezone,
+                    ),
+                    schema=IntentPlanDecision,
+                )
+                usages.append(decision_result.usage)
+                intent = decision_result.parsed.intent
+                plan = build_execution_plan(
+                    decision=decision_result.parsed,
+                    classification=classification,
+                )
+            else:
+                intent_result = await self._llm_client.ainvoke_structured(
+                    operation="eval_extract_intent",
+                    messages=build_intent_messages(
+                        state,
+                        user_timezone=case.input.user_timezone,
+                    ),
+                    schema=ExtractedIntent,
+                )
+                intent = intent_result.parsed
+                usages.append(intent_result.usage)
+                state["intent"] = intent
 
-            plan_result = await self._llm_client.ainvoke_structured(
-                operation="eval_build_plan",
-                messages=build_plan_messages(state),
-                schema=ExecutionPlan,
-            )
-            plan = plan_result.parsed
-            usages.append(plan_result.usage)
+                plan_result = await self._llm_client.ainvoke_structured(
+                    operation="eval_build_plan",
+                    messages=build_plan_messages(state),
+                    schema=ExecutionPlan,
+                )
+                plan = plan_result.parsed
+                usages.append(plan_result.usage)
             violation = validate_plan_policy(
                 plan=plan,
                 classification=classification,

@@ -13,6 +13,7 @@ from app.agent.approval_schemas import (
     WriteExecutionStatus,
 )
 from app.agent.context import AgentRuntimeContext
+from app.agent.nodes.analyze_intent_plan import AnalyzeIntentPlanNode
 from app.agent.nodes.approval import (
     ApprovalRequestCreator,
     PrepareApprovalNode,
@@ -183,6 +184,7 @@ def build_mail_processing_graph(
     checkpointer: BaseCheckpointSaver,
     store: BaseStore,
     observability: Observability | None = None,
+    analysis_mode: Literal["sequential", "optimized"] = "sequential",
 ) -> MailProcessingGraph:
     """组装有界、可暂停、可恢复的完整邮件处理工作流。"""
 
@@ -200,8 +202,11 @@ def build_mail_processing_graph(
     add_node("load_email", LoadEmailNode(reader))
     add_node("load_memory", LoadMemoryNode())
     add_node("classify_email", ClassifyEmailNode(llm_client))
-    add_node("extract_intent", ExtractIntentNode(llm_client))
-    add_node("build_plan", BuildPlanNode(llm_client))
+    if analysis_mode == "optimized":
+        add_node("analyze_intent_plan", AnalyzeIntentPlanNode(llm_client))
+    else:
+        add_node("extract_intent", ExtractIntentNode(llm_client))
+        add_node("build_plan", BuildPlanNode(llm_client))
     add_node(
         "execute_read_tools",
         ExecuteReadToolsNode(read_tool_client_factory),
@@ -249,18 +254,24 @@ def build_mail_processing_graph(
         "classify_email",
         route_after_classification,
         {
-            "continue": "extract_intent",
+            "continue": (
+                "analyze_intent_plan" if analysis_mode == "optimized" else "extract_intent"
+            ),
             "ignored": "finalize_ignored",
             "failed": "finalize_failed",
         },
     )
+    if analysis_mode == "optimized":
+        plan_source = "analyze_intent_plan"
+    else:
+        builder.add_conditional_edges(
+            "extract_intent",
+            route_after_node,
+            {"continue": "build_plan", "failed": "finalize_failed"},
+        )
+        plan_source = "build_plan"
     builder.add_conditional_edges(
-        "extract_intent",
-        route_after_node,
-        {"continue": "build_plan", "failed": "finalize_failed"},
-    )
-    builder.add_conditional_edges(
-        "build_plan",
+        plan_source,
         _route_after_plan,
         {
             "read_tools": "execute_read_tools",
@@ -388,4 +399,5 @@ def build_default_mail_processing_graph(
         checkpointer=checkpointer,
         store=store,
         observability=observer,
+        analysis_mode=current_settings.agent_analysis_mode,
     )
