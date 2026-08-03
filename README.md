@@ -1,10 +1,73 @@
 # MailPilot：企业邮件与日程协同 Agent
 
-MailPilot 是一个用于学习和求职展示的企业级 Agent 项目。项目采用外层确定性 LangGraph 工作流和内层受控 MCP 工具调用，重点展示状态管理、人工审批、长期记忆、安全、评测、可观测性和工程化部署。
+MailPilot 是一个用于学习和求职展示的企业级邮件与日程协同 Agent。它能够分析企业邮件、判断回复/提醒/忽略和优先级、提取会议信息、查询日历，在发送邮件或创建会议前暂停等待人工审批，并在审批后恢复同一工作流。
+
+项目采用“外层确定性 LangGraph 工作流 + 内层受控 MCP 工具调用”的结构，重点展示 Agent 状态管理、人工审批、长期记忆、安全防护、评测、可观测性与工程化部署。
+
+## 30 秒了解项目
+
+```text
+企业邮件
+  → 分类与优先级判断
+  → 提取任务和会议意图
+  → 生成受控执行计划
+  → MCP 查询邮件/日历
+  → 生成草稿或会议方案
+  → interrupt 等待人工审批
+  → Command 恢复并执行写操作
+  → 审计、执行轨迹与长期记忆更新
+```
+
+| 能力 | 项目实现 |
+|---|---|
+| Agent 编排 | LangGraph Typed State、条件边、`interrupt`、`Command`、PostgreSQL Checkpointer、`thread_id` 恢复 |
+| 工具调用 | Mail MCP 与 Calendar MCP，FastMCP + Streamable HTTP + `langchain-mcp-adapters` |
+| 安全控制 | JWT/RBAC、Prompt Injection 隔离、工具白名单、写操作审批、Redis 锁与数据库幂等键 |
+| 记忆与审计 | 用户隔离的长期记忆、版本记录、AuditLog、AgentRun、ToolCallLog |
+| 产品界面 | Streamlit 邮件处理台、审批中心、日历、执行轨迹、记忆管理与 SSE |
+
+## 实测结果
+
+| 指标 | 实测结果 |
+|---|---:|
+| 自动化测试 | 286 passed |
+| 真实模型分析链 | 36 条数据集 × 3 轮，共 108 个样本 |
+| 分析链平均 Token | 3992.39 → 3153.64，下降 21.01% |
+| 分析链 P95 延迟 | 12.84 秒 → 10.68 秒，下降 16.84% |
+| 完整 HTTP E2E 平均 Token | 4865.25 → 3857.39，下降 20.72% |
+| 完整 HTTP E2E P95 | 21.33 秒 → 12.14 秒，下降 43.07% |
+| 完整 E2E 任务结果符合预期率 | 97.22% |
+| 危险操作审批门禁 | 26/26 通过 |
+
+以上均为本地固定数据集 Benchmark，不代表生产 SLA。测试方法、模型、样本和边界见[Token 与 P95 延迟优化报告](docs/12-Token与延迟优化报告.md)。
+
+## 5 分钟启动与演示
+
+1. 按[首次配置](#首次配置)复制 `.env.example` 为 `.env`，填写数据库、Redis、JWT、MCP 内部令牌和 OpenAI Compatible 模型配置。
+2. 执行 `docker compose --env-file .env up --build -d` 启动全部服务。
+3. 在本机安装依赖后执行 `uv run python backend/scripts/seed_demo.py` 写入演示用户、邮件和日历数据。
+4. 打开 <http://localhost:8080>，使用 `.env` 中的 `DEMO_USER_EMAIL` 和 `DEMO_USER_PASSWORD` 登录。
+5. 在“邮件处理台”选择一封邮件并启动 Agent；在“执行轨迹”查看节点、模型 Token、MCP 调用和状态。
+6. 对发送邮件或创建会议方案，在“审批中心”接受、拒绝、修改参数后接受，或提交文字反馈重新生成。
+
+## 核心代码入口
+
+| 目标 | 入口文件 |
+|---|---|
+| 完整 LangGraph 工作流 | [workflow.py](backend/app/agent/workflow.py) |
+| 优化后的意图与计划合并节点 | [analyze_intent_plan.py](backend/app/agent/nodes/analyze_intent_plan.py) |
+| 受控执行计划构造与校验 | [planning.py](backend/app/agent/planning.py) |
+| 邮件/日历 MCP Client | [client.py](backend/app/integrations/mcp/client.py) |
+| 审批暂停与恢复 | [approval.py](backend/app/agent/nodes/approval.py) |
+| HTTP Agent 入口 | [emails.py](backend/app/api/v1/emails.py) |
+| 评测与 Benchmark | [evals](evals/) |
+
+## 完整功能清单（开发记录）
+
+<details>
+<summary>展开查看第 1～10 阶段的完整实现清单</summary>
 
 当前已完成第 1～10 阶段：具备用户认证、邮件与日历业务基础、两个 MCP Server、安全 MCP Client，以及由 Typed State、结构化模型节点、条件路由、只读工具执行和明确结束状态组成的确定性 LangGraph 核心工作流；审批恢复、长期记忆、安全加固、SSE 工作台、Langfuse/DeepEval 和 Docker Compose + Nginx 部署均已形成可测试闭环，并提供完整中文技术文档及求职材料。
-
-## 当前已完成
 
 - Python 3.12 工程和 `pyproject.toml` 依赖管理。
 - FastAPI 应用工厂、OpenAPI 文档和版本化 API。
@@ -119,7 +182,9 @@ MailPilot 是一个用于学习和求职展示的企业级 Agent 项目。项目
 - 第 10 阶段 10.4：提供简历三行描述、一分钟/五分钟讲解稿、高频面试问答和项目边界说明。
 - 最终实战验收：Ruff、286 项 pytest、36 条 Reference 评测、108 样本真实模型 A/B 和完整 HTTP E2E 均通过；优化后分析链平均 Token 下降 21.01%、P95 下降 16.84%，完整 E2E P95 下降 43.07%。
 
-## 第 1 阶段请求路径
+</details>
+
+## 核心请求路径
 
 ```text
 GET /api/v1/health/ready
