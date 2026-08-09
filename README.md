@@ -96,7 +96,7 @@ MailPilot 是面向企业内部邮件处理与日程协调场景的可部署 Age
 ### 首次配置
 
 ```powershell
-git clone https://github.com/xibeiqiaozhilang-bot/mailpilot.git
+git clone https://github.com/dejin-chen/mailpilot.git
 cd mailpilot
 Copy-Item .env.example .env
 ```
