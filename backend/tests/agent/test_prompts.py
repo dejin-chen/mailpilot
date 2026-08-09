@@ -9,6 +9,7 @@ from app.agent.prompts import (
     build_classification_messages,
     build_draft_messages,
     build_intent_messages,
+    build_intent_plan_messages,
     build_plan_messages,
 )
 from app.agent.schemas import (
@@ -85,6 +86,27 @@ def test_plan_prompt_uses_validated_models_and_rejects_missing_state() -> None:
     del state["intent"]
     with pytest.raises(AgentStateDataError, match="intent"):
         build_plan_messages(state)
+
+
+def test_optimized_prompt_contains_email_once_and_validated_classification() -> None:
+    state = _email_state("请参考上月邮件后回复。")
+    state["classification"] = EmailClassification(
+        action=EmailAction.REPLY,
+        priority=EmailPriority.NORMAL,
+        category=EmailCategory.REQUEST,
+        summary="需要参考历史邮件回复",
+        reason="对方明确要求回复",
+        confidence=0.9,
+    )
+
+    messages = build_intent_plan_messages(state, user_timezone="Asia/Shanghai")
+    system_content = str(messages[0].content)
+    human_content = str(messages[1].content)
+
+    assert "一次结构化输出" in system_content
+    assert "validated_classification_json" in human_content
+    assert human_content.count("请参考上月邮件后回复。") == 1
+    assert "Asia/Shanghai" in human_content
 
 
 def test_draft_prompt_contains_only_validated_writing_preferences() -> None:

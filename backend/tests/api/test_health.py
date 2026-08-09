@@ -22,12 +22,12 @@ async def test_live_returns_service_metadata(client: AsyncClient) -> None:
 @pytest.mark.asyncio
 async def test_live_reuses_valid_request_id(client: AsyncClient) -> None:
     response = await client.get(
-        "/api/v1/health/live", headers={"X-Request-ID": "interview-demo-001"}
+        "/api/v1/health/live", headers={"X-Request-ID": "health-check-001"}
     )
 
     assert response.status_code == 200
-    assert response.headers["X-Request-ID"] == "interview-demo-001"
-    assert response.json()["request_id"] == "interview-demo-001"
+    assert response.headers["X-Request-ID"] == "health-check-001"
+    assert response.json()["request_id"] == "health-check-001"
 
 
 @pytest.mark.asyncio

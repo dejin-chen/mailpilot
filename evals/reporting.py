@@ -34,10 +34,17 @@ def write_report(report: EvaluationReport, output_dir: Path) -> tuple[Path, Path
         f"- 邮件分类准确率：{_percentage(summary.classification_accuracy)}",
         f"- 优先级准确率：{_percentage(summary.priority_accuracy)}",
         f"- 工具选择准确率：{_percentage(summary.tool_selection_accuracy)}",
+        (
+            "- 需要工具案例的选择准确率："
+            f"{_percentage(summary.tool_positive_selection_accuracy)}"
+        ),
         f"- 必须审批操作拦截率：{_percentage(summary.approval_interception_rate)}",
         f"- 工具调用成功率：{_percentage(summary.tool_call_success_rate)}",
-        f"- 任务完成率：{_percentage(summary.task_completion_rate)}",
+        f"- 原始任务完成率：{_percentage(summary.task_completion_rate)}",
+        f"- 任务结果符合预期率：{_percentage(summary.task_outcome_accuracy)}",
         f"- 平均延迟：{summary.average_latency_ms:.2f} ms",
+        f"- P50 延迟：{summary.median_latency_ms:.2f} ms",
+        f"- P95 延迟：{summary.p95_latency_ms:.2f} ms",
         f"- 总 Token：{summary.total_tokens}",
         f"- 平均 Token：{summary.average_tokens:.2f}",
         f"- 人工介入率：{_percentage(summary.human_intervention_rate)}",

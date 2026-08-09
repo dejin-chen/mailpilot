@@ -139,10 +139,12 @@ class EvalCaseResult(EvalSchema):
     meeting_intent_correct: bool
     clarification_correct: bool
     tool_selection_correct: bool
+    expected_tool_count: int = Field(ge=0)
     expected_requires_approval: bool
     approval_interception_correct: bool
     terminal_status_correct: bool
     task_completed: bool
+    task_outcome_correct: bool
     actual: EvalActual
 
 
@@ -161,10 +163,14 @@ class EvaluationSummary(EvalSchema):
     classification_accuracy: MetricValue
     priority_accuracy: MetricValue
     tool_selection_accuracy: MetricValue
+    tool_positive_selection_accuracy: MetricValue
     approval_interception_rate: MetricValue
     tool_call_success_rate: MetricValue
     task_completion_rate: MetricValue
+    task_outcome_accuracy: MetricValue
     average_latency_ms: float = Field(ge=0)
+    median_latency_ms: float = Field(ge=0)
+    p95_latency_ms: float = Field(ge=0)
     total_tokens: int = Field(ge=0)
     average_tokens: float = Field(ge=0)
     human_intervention_rate: MetricValue

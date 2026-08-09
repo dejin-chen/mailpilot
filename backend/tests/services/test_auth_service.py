@@ -18,7 +18,7 @@ def _user(*, is_active: bool = True) -> User:
     return User(
         email="graduate@example.com",
         password_hash="stored-hash",
-        full_name="应届生用户",
+        full_name="企业测试用户",
         is_active=is_active,
         timezone="Asia/Shanghai",
     )

@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = Field(default=30.0, gt=0, le=180)
     llm_max_retries: int = Field(default=2, ge=0, le=3)
     llm_structured_output_method: Literal["function_calling", "json_schema"] = "function_calling"
+    agent_analysis_mode: Literal["sequential", "optimized"] = "optimized"
 
     langfuse_enabled: bool = False
     langfuse_base_url: str | None = None

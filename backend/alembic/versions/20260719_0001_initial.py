@@ -14,7 +14,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    """建立第 1 阶段空迁移基线；业务表从第 2 阶段开始加入。"""
+    """建立空迁移基线；后续 revision 维护业务表结构。"""
 
 
 def downgrade() -> None:

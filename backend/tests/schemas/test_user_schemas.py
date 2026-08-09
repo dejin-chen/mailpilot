@@ -10,12 +10,12 @@ def test_user_create_normalizes_safe_fields_and_masks_password() -> None:
     user = UserCreate(
         email="  Graduate@Example.COM ",
         password="safe-demo-password",
-        full_name="  应届生用户  ",
+        full_name="  企业测试用户  ",
         timezone="Asia/Shanghai",
     )
 
     assert str(user.email) == "graduate@example.com"
-    assert user.full_name == "应届生用户"
+    assert user.full_name == "企业测试用户"
     assert user.password.get_secret_value() == "safe-demo-password"
     assert "safe-demo-password" not in repr(user)
 

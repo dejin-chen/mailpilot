@@ -238,6 +238,32 @@ READ_ONLY_TOOL_ARGUMENT_MODELS: dict[ReadOnlyToolName, type[AgentSchema]] = {
 }
 
 
+class ReadToolDecision(AgentSchema):
+    """合并分析节点选择的一次只读工具调用。"""
+
+    tool_name: ReadOnlyToolName
+    tool_arguments: ReadOnlyToolArguments
+
+    @model_validator(mode="after")
+    def validate_tool_arguments(self) -> Self:
+        """工具名称和参数 Schema 必须严格对应。"""
+
+        expected_model = READ_ONLY_TOOL_ARGUMENT_MODELS[self.tool_name]
+        if not isinstance(self.tool_arguments, expected_model):
+            msg = f"{self.tool_name.value} 的 tool_arguments 参数结构不正确"
+            raise ValueError(msg)
+        return self
+
+
+class IntentPlanDecision(AgentSchema):
+    """一次模型调用生成的意图和精简工具决策。"""
+
+    intent: ExtractedIntent
+    read_tools: list[ReadToolDecision] = Field(default_factory=list, max_length=4)
+    should_generate_draft: bool
+    reason: str = Field(min_length=1, max_length=500)
+
+
 class PlanStep(AgentSchema):
     """一个可审查、可计数的执行计划步骤。"""
 
@@ -316,6 +342,12 @@ class EmailDraft(AgentSchema):
     recipients: list[EmailStr] = Field(min_length=1, max_length=100)
     cc: list[EmailStr] = Field(default_factory=list, max_length=100)
     subject: str = Field(default="", max_length=500)
+    body_text: str = Field(min_length=1, max_length=20000)
+
+
+class EmailDraftContent(AgentSchema):
+    """模型只负责生成的草稿正文；信封字段由 Python 确定。"""
+
     body_text: str = Field(min_length=1, max_length=20000)
 
 
