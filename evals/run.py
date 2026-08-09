@@ -1,4 +1,4 @@
-"""MailPilot 第 9 阶段统一评测命令。"""
+"""MailPilot 统一离线评测入口。"""
 
 import argparse
 import asyncio

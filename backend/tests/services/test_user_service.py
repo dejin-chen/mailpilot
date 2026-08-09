@@ -16,7 +16,7 @@ def _user_create() -> UserCreate:
     return UserCreate(
         email="graduate@example.com",
         password="safe-demo-password",
-        full_name="应届生用户",
+        full_name="企业测试用户",
         timezone="Asia/Shanghai",
     )
 
